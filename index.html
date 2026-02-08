@@ -440,6 +440,35 @@ function initMap(){
   setStatus("準備OK：出発地を入れて検索して");
 }
 window.initMap = initMap;
+  function exportHospitals(){
+  const data = { hospitals };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "hospitals.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function importHospitalsFromFile(file){
+  const txt = await file.text();
+  const data = JSON.parse(txt);
+  hospitals = data.hospitals || [];
+  saveHospitals();
+  runSearch();
+}
+
+document.getElementById("btnExport")?.addEventListener("click", exportHospitals);
+document.getElementById("btnImport")?.addEventListener("click", ()=>{
+  document.getElementById("importFile").click();
+});
+document.getElementById("importFile")?.addEventListener("change", e=>{
+  if(e.target.files[0]) importHospitalsFromFile(e.target.files[0]);
+});
+
 </script>
 
 <script async
