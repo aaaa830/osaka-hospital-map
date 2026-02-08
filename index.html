@@ -99,22 +99,16 @@ button{cursor:pointer}
 
       <textarea id="hNote" style="width:100%;margin-top:8px" placeholder="メモ（検索結果とピンに表示）"></textarea>
 
-      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;margin-top:8px">
         <button id="btnSave">追加 / 更新</button>
         <button id="btnReset">クリア</button>
       </div>
 
-      <!-- ★追加：PC→スマホ移行用 Export / Import -->
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-        <button id="btnExport">データを書き出し（JSON）</button>
-        <button id="btnImport">データを読み込み（JSON）</button>
-        <input id="importFile" type="file" accept="application/json" style="display:none">
-      </div>
-      <div class="small" style="margin-top:6px">
-        ※PCで書き出したJSONをスマホへ送って、スマホで読み込むと同じデータになります
-      </div>
-
       <div class="small" id="editHint" style="margin-top:6px"></div>
+      <div class="small" style="margin-top:8px">
+        ※ 追加/更新/削除は<strong>この端末のブラウザ内（localStorage）</strong>に保存されます。<br>
+        ※ みんなに共有するには、localStorageから書き出して hospitals.json を更新してください。
+      </div>
     </div>
 
     <div class="panel">
@@ -128,7 +122,8 @@ button{cursor:pointer}
 const DB_KEY="osaka_hospital_db_tagsplit_v2_tel_bedgrid";
 const TAGS=["急性期","一般","回復期","療養","地域包括","緩和ケア","精神","障害","透析","ST在籍"];
 
-let hospitals = loadHospitals();
+// ★ここがポイント：最初は空。initMap内で async で読み込む
+let hospitals = [];
 
 let map, geocoder, directions, infoWindow;
 let markers = [];
@@ -146,10 +141,34 @@ function setStatus(t, w=false){
   $("status").innerHTML = w ? `<span class="warn">${escapeHtml(t)}</span>` : escapeHtml(t);
 }
 
-function loadHospitals(){
+function normalizeHospitals(arr){
+  return (Array.isArray(arr) ? arr : []).map(h => ({
+    ...h,
+    tags: Array.isArray(h.tags) ? h.tags : [],
+    beds: (h.beds && typeof h.beds === "object") ? h.beds : {
+      acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0
+    },
+    note: h.note || "",
+    nearest: h.nearest || ""
+  }));
+}
+
+// ★ 追加：hospitals.json を優先して読む。ダメなら localStorage へフォールバック
+async function loadHospitals(){
+  // 1) GitHub Pages の hospitals.json
+  try{
+    const res = await fetch("./hospitals.json", { cache: "no-store" });
+    if(res.ok){
+      const json = await res.json();
+      const norm = normalizeHospitals(json);
+      if(norm.length) return norm;
+    }
+  }catch(e){ /* 無視して次へ */ }
+
+  // 2) localStorage（端末内）
   try {
     const arr = JSON.parse(localStorage.getItem(DB_KEY) || "[]");
-    return (Array.isArray(arr) ? arr : []).map(h => (normalizeHospital(h)));
+    return normalizeHospitals(arr);
   } catch {
     return [];
   }
@@ -221,97 +240,13 @@ function routeMeters(origin, h){
   });
 }
 
-/* ★共通：病院データの形を整える（Importでも使う） */
-function normalizeHospital(h){
-  const bedsDefault = {acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0};
-  const beds = (h.beds && typeof h.beds === "object") ? {...bedsDefault, ...h.beds} : bedsDefault;
-
-  return {
-    id: h.id || ("h_" + Date.now() + "_" + Math.random().toString(16).slice(2)),
-    name: h.name || "",
-    address: h.address || "",
-    tel: h.tel || "",
-    nearest: h.nearest || "",
-    lat: (typeof h.lat === "number") ? h.lat : Number(h.lat),
-    lng: (typeof h.lng === "number") ? h.lng : Number(h.lng),
-    tags: Array.isArray(h.tags) ? h.tags : [],
-    beds,
-    note: h.note || ""
-  };
-}
-
-/* ★Export/Import */
-function downloadText(filename, text){
-  const blob = new Blob([text], {type:"application/json;charset=utf-8"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function exportHospitals(){
-  const payload = {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    hospitals
-  };
-  const fn = `osaka_hospitals_${new Date().toISOString().slice(0,10)}.json`;
-  downloadText(fn, JSON.stringify(payload, null, 2));
-  setStatus("書き出しました（スマホに送って読み込みして）");
-}
-
-async function importHospitalsFromFile(file){
-  let data;
-  try {
-    const txt = await file.text();
-    data = JSON.parse(txt);
-  } catch {
-    return setStatus("読み込み失敗：JSONが壊れてる/形式が違う", true);
-  }
-
-  const arr = Array.isArray(data) ? data : (Array.isArray(data?.hospitals) ? data.hospitals : null);
-  if (!arr) return setStatus("読み込み失敗：hospitals配列が見つからない", true);
-
-  const cleaned = arr.map(normalizeHospital).filter(h =>
-    h.name && h.address && Number.isFinite(h.lat) && Number.isFinite(h.lng)
-  );
-
-  if (cleaned.length === 0) return setStatus("読み込み失敗：取り込み対象が0件", true);
-
-  // 迷わせない：既存は消して置き換え（確実）
-  hospitals = cleaned;
-  saveHospitals();
-  setStatus(`読み込み完了：${cleaned.length}件`);
-  resetForm();
-  runSearch();
-}
-
-function wireExportImport(){
-  $("btnExport").addEventListener("click", exportHospitals);
-
-  $("btnImport").addEventListener("click", ()=>{
-    $("importFile").value = "";
-    $("importFile").click();
-  });
-
-  $("importFile").addEventListener("change", async (e)=>{
-    const f = e.target.files?.[0];
-    if (!f) return;
-    await importHospitalsFromFile(f);
-  });
-}
-
 /* 編集フォームに反映 */
 function fillForm(h){
   editId = h.id;
   $("hName").value = h.name || "";
   $("hAddr").value = h.address || "";
   $("hTel").value  = h.tel || "";
-  $("hNearest").value = h.nearest || ""; // ★追加
+  $("hNearest").value = h.nearest || "";
   $("hNote").value = h.note || "";
 
   const b = h.beds || {};
@@ -333,7 +268,7 @@ function resetForm(){
   $("hName").value = "";
   $("hAddr").value = "";
   $("hTel").value  = "";
-  $("hNearest").value = ""; // ★追加
+  $("hNearest").value = "";
   $("hNote").value = "";
   ["acute","general","rehab","long","chiiki","psy","palliative","disability"].forEach(k => {
     $("bed_"+k).value = "";
@@ -360,24 +295,24 @@ async function saveHospital(){
   try { ll = await geocode(addr); }
   catch(e){ return setStatus(e.message, true); }
 
-  const obj = normalizeHospital({
+  const obj = {
     id: editId || ("h_" + Date.now()),
     name,
     address: addr,
     tel: $("hTel").value.trim(),
-    nearest: $("hNearest").value.trim(), // ★追加
+    nearest: $("hNearest").value.trim(),
     lat: ll.lat(),
     lng: ll.lng(),
     tags: getTags("formTags"),
     beds: readBedsFromForm(),
     note: $("hNote").value.trim()
-  });
+  };
 
   hospitals = hospitals.filter(x => x.id !== obj.id);
   hospitals.push(obj);
   saveHospitals();
 
-  setStatus("保存しました");
+  setStatus("保存しました（この端末のブラウザ内に保存）");
   resetForm();
   runSearch();
 }
@@ -387,6 +322,10 @@ async function runSearch(){
 
   const originTxt = $("origin").value.trim();
   if(!originTxt) return setStatus("出発地を入力してください", true);
+
+  if(!Array.isArray(hospitals) || hospitals.length === 0){
+    return setStatus("病院データが空です。hospitals.json が置けているか確認して。", true);
+  }
 
   setStatus("出発地を検索中…");
   let origin;
@@ -502,7 +441,7 @@ async function runSearch(){
   setStatus(`表示：${results.length}件（タグ ${need.size ? `AND ${[...need].join(" / ")}` : "指定なし"}）`);
 }
 
-function initMap(){
+async function initMap(){
   geocoder = new google.maps.Geocoder();
   directions = new google.maps.DirectionsService();
   infoWindow = new google.maps.InfoWindow();
@@ -523,9 +462,15 @@ function initMap(){
   $("btnReset").addEventListener("click", resetForm);
   $("origin").addEventListener("keydown", (e)=>{ if(e.key==="Enter") runSearch(); });
 
-  wireExportImport(); // ★ここでExport/Importを有効化
+  setStatus("病院データ読み込み中…");
 
-  setStatus("準備OK：出発地を入れて検索して");
+  hospitals = await loadHospitals();
+
+  if(hospitals.length){
+    setStatus(`準備OK：病院データ ${hospitals.length} 件。出発地を入れて検索して`);
+  }else{
+    setStatus("病院データが0件。hospitals.json が同じ階層にあるか確認して。", true);
+  }
 }
 window.initMap = initMap;
 </script>
