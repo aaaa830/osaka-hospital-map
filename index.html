@@ -9,7 +9,7 @@
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
 header{padding:12px;border-bottom:1px solid #ddd;background:#fafafa}
-.row{display:flex;gap:12px;align-items:flex-end}
+.row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
 label{font-size:12px;color:#555;display:block;margin-bottom:4px}
 input,button,textarea{padding:10px;font-size:15px;border:1px solid #ccc;border-radius:10px}
 textarea{border-radius:10px}
@@ -41,17 +41,14 @@ button:active{transform:translateY(1px)}
 .bed-row{display:grid;grid-template-columns:90px 1fr 30px;gap:6px;align-items:center}
 .bed-row span{font-size:12px;color:#555}
 
-/* ===== スマホ最適化 ===== */
+/* スマホ最適化 */
 @media (max-width: 900px){
   header{position:sticky;top:0;z-index:5}
-  .row{flex-wrap:wrap;align-items:stretch}
   #wrap{display:flex;flex-direction:column;height:auto}
   #map{height:45vh;min-height:320px}
   #side{border-left:none;border-top:1px solid #ddd;overflow:visible}
-  .panel{padding:10px}
   input,button,textarea{font-size:16px} /* iPhoneズーム回避 */
   .bed-grid{grid-template-columns:1fr}
-  .bed-row{grid-template-columns:90px 1fr 30px}
 }
 </style>
 </head>
@@ -60,23 +57,28 @@ button:active{transform:translateY(1px)}
 
 <header>
   <div class="row">
-    <div style="flex:0 1 520px;min-width:240px">
+    <div style="flex:1 1 520px;min-width:240px">
       <label>出発地</label>
-      <input id="origin" style="width:100%" placeholder="例：桜川駅 / 堺市 / 大阪市浪速区">
+      <input id="origin" style="width:100%" placeholder="例：桜川駅 / 大阪市浪速区">
     </div>
 
     <div style="display:flex;gap:12px;margin-left:auto;flex-wrap:wrap;align-items:flex-end">
       <div>
         <label>検索範囲（km）</label>
-        <input id="radiusKm" inputmode="decimal" value="8" style="width:140px">
+        <input id="radiusKm" type="number" step="0.1" value="8" style="width:140px">
       </div>
       <div>
         <label>表示件数</label>
-        <input id="limit" inputmode="numeric" value="20" style="width:110px">
+        <input id="limit" type="number" value="20" style="width:110px">
       </div>
 
       <button id="btnSearch" type="button">検索</button>
       <button id="btnExport" type="button">JSON出力</button>
+
+      <label class="tag" style="cursor:pointer">
+        <input id="fileImport" type="file" accept="application/json" style="display:none">
+        JSON読み込み
+      </label>
     </div>
   </div>
 
@@ -96,7 +98,6 @@ button:active{transform:translateY(1px)}
       <input id="hName" style="width:100%" placeholder="病院名"><br><br>
       <input id="hAddr" style="width:100%" placeholder="住所"><br><br>
       <input id="hTel" style="width:100%" placeholder="電話番号"><br><br>
-
       <input id="hNearest" style="width:100%" placeholder="最寄り駅（例：扇町駅 / 桜川駅）"><br><br>
 
       <div class="small">タグ（病院に付ける）</div>
@@ -133,16 +134,16 @@ button:active{transform:translateY(1px)}
 
 <script>
 const DB_KEY="osaka_hospital_db_tagsplit_v2_tel_bedgrid";
+const DEFAULT_JSON_FILE="病院.json"; // 同フォルダに置く
+
 const TAGS=["急性期","一般","回復期","療養","地域包括","緩和ケア","精神","障害","透析","ST在籍"];
 
-let hospitals = loadHospitals();
-let map, geocoder, directions, infoWindow;
+let hospitals = [];
+let map, geocoder, infoWindow, dist;
 let markers = [];
 let editId = null;
-let searchToken = 0;
 
 const $ = (id) => document.getElementById(id);
-const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 
 const escapeHtml = (s) => (s || "").replace(/[&<>"']/g, c => (
   {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
@@ -154,49 +155,81 @@ function setStatus(t, w=false){
   $("status").innerHTML = w ? `<span class="warn">${escapeHtml(t)}</span>` : escapeHtml(t);
 }
 
-function normalizeNumberInput(v, fallback){
-  const s = (v ?? "").toString().replace(/[^\d.]/g,"");
-  const n = Number(s);
-  return Number.isFinite(n) ? n : fallback;
-}
-function normalizeIntInput(v, fallback){
-  const s = (v ?? "").toString().replace(/[^\d]/g,"");
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.trunc(n) : fallback;
-}
-
-function loadHospitals(){
+function loadHospitalsFromLocal(){
   try {
     const arr = JSON.parse(localStorage.getItem(DB_KEY) || "[]");
-    return (Array.isArray(arr) ? arr : []).map(h => ({
-      ...h,
-      tags: Array.isArray(h.tags) ? h.tags : [],
-      beds: (h.beds && typeof h.beds === "object") ? h.beds : {
-        acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0
-      },
-      note: h.note || "",
-      nearest: h.nearest || ""
-    }));
+    return normalizeHospitals(arr);
   } catch {
     return [];
   }
 }
-
+function normalizeHospitals(arr){
+  return (Array.isArray(arr) ? arr : []).map(h => ({
+    ...h,
+    id: h.id || ("h_" + Date.now() + "_" + Math.random().toString(16).slice(2)),
+    name: h.name || "",
+    address: h.address || "",
+    tel: h.tel || "",
+    lat: (typeof h.lat === "number") ? h.lat : Number(h.lat),
+    lng: (typeof h.lng === "number") ? h.lng : Number(h.lng),
+    tags: Array.isArray(h.tags) ? h.tags : [],
+    beds: (h.beds && typeof h.beds === "object") ? h.beds : {acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0},
+    note: h.note || "",
+    nearest: h.nearest || ""
+  })).filter(h => Number.isFinite(h.lat) && Number.isFinite(h.lng));
+}
 function saveHospitals(){
   localStorage.setItem(DB_KEY, JSON.stringify(hospitals));
 }
 
+async function bootstrapHospitals(){
+  hospitals = loadHospitalsFromLocal();
+  if (hospitals.length > 0) return;
+
+  // localStorageが空なら病院.jsonから復元
+  try{
+    setStatus("病院.json から復元中…");
+    const res = await fetch(`${DEFAULT_JSON_FILE}?v=${Date.now()}`, {cache:"no-store"});
+    const arr = await res.json();
+    hospitals = normalizeHospitals(arr);
+    saveHospitals();
+    setStatus(`復元OK：${hospitals.length}件`);
+  }catch(e){
+    hospitals = [];
+    setStatus("復元失敗：病院.json が読めない（同じフォルダに病院.jsonが必要）", true);
+  }
+}
+
+/* JSON出力（バックアップ用） */
 function exportHospitalsJSON(){
   const json = JSON.stringify(hospitals, null, 2);
   const blob = new Blob([json], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "hospitals_backup.json";
+  a.download = "病院.json";
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/* JSON読み込み（差し替え） */
+async function importHospitalsJSON(file){
+  try{
+    const text = await file.text();
+    const arr = JSON.parse(text);
+    const norm = normalizeHospitals(arr);
+    if (norm.length === 0){
+      return setStatus("読み込み失敗：0件（lat/lng が入ってない可能性）", true);
+    }
+    hospitals = norm;
+    saveHospitals();
+    setStatus(`読み込みOK：${hospitals.length}件`);
+    runSearch();
+  }catch(e){
+    setStatus("読み込み失敗：JSON形式が壊れてる", true);
+  }
 }
 
 function renderTagBox(containerId, selected=[]){
@@ -244,25 +277,30 @@ function geocode(addr){
   return new Promise((ok, ng)=>{
     geocoder.geocode({address: addr, region: "JP"}, (r, s)=>{
       if (s === "OK" && r && r[0]) ok(r[0].geometry.location);
-      else ng(new Error("出発地/住所が見つかりません（表記を少し変えて）"));
+      else ng(new Error("住所が見つかりませんでした（表記を少し変えて）"));
     });
   });
 }
 
-/* 経路距離（DRIVING） */
-function routeMeters(origin, h){
-  return new Promise(res=>{
-    directions.route({
-      origin,
-      destination: {lat: h.lat, lng: h.lng},
-      travelMode: google.maps.TravelMode.DRIVING
-    }, (r, s)=>{
-      if (s === "OK" && r.routes?.[0]?.legs?.[0]) res({meters:r.routes[0].legs[0].distance.value, status:s});
-      else res({meters:null, status:s});
+/* DistanceMatrixで経路距離（DRIVING）をまとめて取得 */
+function distanceMatrixMeters(originLatLng, destinationsLatLng){
+  return new Promise((resolve)=>{
+    dist.getDistanceMatrix({
+      origins: [originLatLng],
+      destinations: destinationsLatLng,
+      travelMode: google.maps.TravelMode.DRIVING,
+      unitSystem: google.maps.UnitSystem.METRIC
+    }, (res, status)=>{
+      if (status !== "OK" || !res?.rows?.[0]?.elements){
+        resolve(null);
+        return;
+      }
+      resolve(res.rows[0].elements);
     });
   });
 }
 
+/* 編集フォームに反映 */
 function fillForm(h){
   editId = h.id;
   $("hName").value = h.name || "";
@@ -339,73 +377,70 @@ async function saveHospital(){
   runSearch();
 }
 
-/* ===== 検索：経路距離のみ＋OVER_QUERY_LIMIT回避 ===== */
 async function runSearch(){
-  const myToken = ++searchToken;
   clearMarkers();
+
+  if (!hospitals || hospitals.length === 0){
+    return setStatus("データ0件。JSON読み込みするか、病院.json を同フォルダに置いてください", true);
+  }
 
   const originTxt = $("origin").value.trim();
   if(!originTxt) return setStatus("出発地を入力してください", true);
-
-  const radiusKm = Math.max(0.1, normalizeNumberInput($("radiusKm").value, 8));
-  const limit = Math.max(1, normalizeIntInput($("limit").value, 20));
-  const radiusM = radiusKm * 1000;
 
   setStatus("出発地を検索中…");
   let origin;
   try { origin = await geocode(originTxt); }
   catch(e){ return setStatus(e.message, true); }
-  if (myToken !== searchToken) return;
 
   map.setCenter(origin);
-  map.setZoom(12);
+  map.setZoom(13);
   markers.push(new google.maps.Marker({map, position: origin}));
 
+  const radiusKm = +$("radiusKm").value;
+  const limit = +$("limit").value || 20;
   const need = new Set(getTags("searchTags"));
+
   const filtered = hospitals.filter(h => {
     const t = Array.isArray(h.tags) ? h.tags : [];
     if (need.size === 0) return true;
     return [...need].every(x => t.includes(x));
   });
 
-  // ✅ ここが肝：全部に一気に経路計算しない
-  // 必要件数(limit)集まったら終了。OVERが出たら休む。
-  const MAX_TRY = Math.max(limit * 12, 180);
-  const targets = filtered.slice(0, MAX_TRY);
+  if (filtered.length === 0){
+    $("list").innerHTML = `<div class="small">該当なし（タグ条件）</div>`;
+    return setStatus("表示：0件（タグ条件）");
+  }
 
+  setStatus("経路距離を計算中…");
+
+  // DistanceMatrixは25件ずつ（仕様）
+  const chunkSize = 25;
   let results = [];
-  let fail = 0, over = 0;
 
-  setStatus(`経路距離を計算中…（半径 ${radiusKm}km / 上限 ${limit}件）`);
+  for (let i=0; i<filtered.length; i+=chunkSize){
+    const chunk = filtered.slice(i, i+chunkSize);
+    const dests = chunk.map(h => new google.maps.LatLng(h.lat, h.lng));
+    const elements = await distanceMatrixMeters(origin, dests);
 
-  for (let i = 0; i < targets.length; i++){
-    if (myToken !== searchToken) return;
-
-    if (i % 10 === 0){
-      setStatus(`経路距離を計算中… ${i}/${targets.length}（集計 ${results.length}/${limit}）`);
+    if (!elements){
+      // APIが止まってる/制限の可能性
+      setStatus("距離計算に失敗。API制限/課金/キー設定を確認", true);
+      break;
     }
 
-    const h = targets[i];
-    if (typeof h.lat !== "number" || typeof h.lng !== "number") continue;
-
-    await sleep(150);
-    const r = await routeMeters(origin, h);
-
-    if (r.status === "OVER_QUERY_LIMIT"){
-      over++;
-      await sleep(900);
-      continue;
+    for (let j=0; j<chunk.length; j++){
+      const el = elements[j];
+      if (el?.status === "OK"){
+        const m = el.distance?.value;
+        if (typeof m === "number" && m <= radiusKm*1000){
+          results.push({...chunk[j], meters: m});
+        }
+      }
+      // ZERO_RESULTS は無視（経路なし）
     }
 
-    if (r.meters === null){
-      fail++;
-      continue;
-    }
-
-    if (r.meters <= radiusM){
-      results.push({...h, meters: r.meters});
-      if (results.length >= limit) break;
-    }
+    // 取りすぎ防止：表示件数の2倍以上集まったら途中で止める（早くなる）
+    if (results.length >= limit*2) break;
   }
 
   results.sort((a,b)=>a.meters-b.meters);
@@ -416,7 +451,7 @@ async function runSearch(){
 
   if (results.length === 0){
     listEl.innerHTML = `<div class="small">該当なし（範囲を広げる / タグを減らす）</div>`;
-    return setStatus(`表示：0件（経路失敗 ${fail} / OVER_QUERY_LIMIT ${over}）`, true);
+    return setStatus(`表示：0件`);
   }
 
   results.forEach((h, i)=>{
@@ -492,10 +527,10 @@ async function runSearch(){
   setStatus(`表示：${results.length}件（タグ ${need.size ? `AND ${[...need].join(" / ")}` : "指定なし"}）`);
 }
 
-function initMap(){
+async function initMap(){
   geocoder = new google.maps.Geocoder();
-  directions = new google.maps.DirectionsService();
   infoWindow = new google.maps.InfoWindow();
+  dist = new google.maps.DistanceMatrixService();
 
   map = new google.maps.Map($("map"), {
     center: {lat: 34.6937, lng: 135.5023},
@@ -506,21 +541,30 @@ function initMap(){
   renderTagBox("searchTags", []);
   renderTagBox("formTags", []);
 
-  if (!$("origin").value) $("origin").value = "桜川駅";
+  $("origin").value = "桜川駅";
 
   $("btnSearch").addEventListener("click", runSearch);
   $("btnSave").addEventListener("click", saveHospital);
   $("btnReset").addEventListener("click", resetForm);
   $("btnExport").addEventListener("click", exportHospitalsJSON);
+
+  $("fileImport").addEventListener("change", (e)=>{
+    const file = e.target.files?.[0];
+    if (file) importHospitalsJSON(file);
+    e.target.value = "";
+  });
+
   $("origin").addEventListener("keydown", (e)=>{ if(e.key==="Enter") runSearch(); });
 
-  setStatus(`準備OK：データ ${hospitals.length}件`);
+  await bootstrapHospitals();
+  setStatus(`準備OK：データ${hospitals.length}件`);
 }
 window.initMap = initMap;
 </script>
 
-<script async defer
-src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBM8lxW4kmGpwxF-9Yp9rj8LMakrbBtfQE&callback=initMap&language=ja&region=JP&libraries=places">
+<!-- ★ここにあなたのAPIキーを入れる -->
+<script async
+src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap&language=ja&region=JP">
 </script>
 
 </body>
