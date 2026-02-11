@@ -175,6 +175,41 @@ function saveHospitals(){
   localStorage.setItem(DB_KEY, JSON.stringify(hospitals));
 }
 
+/* ===== 追加：localStorageが空なら 病院.json を読み込んで復元 ===== */
+async function bootstrapFromJsonIfEmpty(){
+  if (hospitals.length > 0) return; // 既にローカルにあるなら何もしない
+
+  try{
+    setStatus("病院.json を読み込み中…");
+    const res = await fetch("./病院.json", { cache: "no-store" });
+    if(!res.ok) throw new Error("病院.json が見つからない");
+
+    const data = await res.json();
+    const arr = Array.isArray(data) ? data : (Array.isArray(data.hospitals) ? data.hospitals : null);
+    if(!arr) throw new Error("病院.json の形式が違う（配列じゃない）");
+
+    hospitals = arr.map((h, i) => ({
+      id: h.id || ("h_" + Date.now() + "_" + i),
+      name: h.name || "",
+      address: h.address || "",
+      tel: h.tel || "",
+      nearest: h.nearest || "",
+      lat: Number(h.lat),
+      lng: Number(h.lng),
+      tags: Array.isArray(h.tags) ? h.tags : [],
+      beds: (h.beds && typeof h.beds === "object") ? h.beds : {
+        acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0
+      },
+      note: h.note || ""
+    })).filter(h => h.name && h.address && Number.isFinite(h.lat) && Number.isFinite(h.lng));
+
+    saveHospitals();
+    setStatus(`病院.json 読込：${hospitals.length}件`);
+  }catch(e){
+    setStatus(`病院.json 読込失敗：${e.message}`, true);
+  }
+}
+
 /* ===== JSON出力（バックアップ用） ===== */
 function exportHospitalsJSON(){
   const json = JSON.stringify(hospitals, null, 2);
@@ -451,7 +486,7 @@ async function runSearch(){
   setStatus(`表示：${results.length}件（タグ ${need.size ? `AND ${[...need].join(" / ")}` : "指定なし"}）`);
 }
 
-function initMap(){
+async function initMap(){
   geocoder = new google.maps.Geocoder();
   directions = new google.maps.DirectionsService();
   infoWindow = new google.maps.InfoWindow();
@@ -472,6 +507,9 @@ function initMap(){
   $("btnReset").addEventListener("click", resetForm);
   $("btnExport").addEventListener("click", exportHospitalsJSON);
   $("origin").addEventListener("keydown", (e)=>{ if(e.key==="Enter") runSearch(); });
+
+  // ★追加：空なら病院.jsonを読み込んでから検索
+  await bootstrapFromJsonIfEmpty();
 
   setStatus("準備OK：出発地を入れて検索して");
 }
