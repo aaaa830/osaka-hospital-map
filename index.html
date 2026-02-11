@@ -41,7 +41,7 @@ button:active{transform:translateY(1px)}
 .bed-row{display:grid;grid-template-columns:90px 1fr 30px;gap:6px;align-items:center}
 .bed-row span{font-size:12px;color:#555}
 
-/* ===== スマホ最適化（機能は変えない） ===== */
+/* ===== スマホ最適化 ===== */
 @media (max-width: 900px){
   header{position:sticky;top:0;z-index:5}
   .row{flex-wrap:wrap;align-items:stretch}
@@ -97,7 +97,6 @@ button:active{transform:translateY(1px)}
       <input id="hAddr" style="width:100%" placeholder="住所"><br><br>
       <input id="hTel" style="width:100%" placeholder="電話番号"><br><br>
 
-      <!-- 最寄り駅 -->
       <input id="hNearest" style="width:100%" placeholder="最寄り駅（例：扇町駅 / 桜川駅）"><br><br>
 
       <div class="small">タグ（病院に付ける）</div>
@@ -133,19 +132,17 @@ button:active{transform:translateY(1px)}
 </div>
 
 <script>
-/* ====== 設定 ====== */
 const DB_KEY="osaka_hospital_db_tagsplit_v2_tel_bedgrid";
 const TAGS=["急性期","一般","回復期","療養","地域包括","緩和ケア","精神","障害","透析","ST在籍"];
 
-/* ====== 状態 ====== */
 let hospitals = loadHospitals();
 let map, geocoder, directions, infoWindow;
 let markers = [];
 let editId = null;
-let searchToken = 0; // 検索の中断用
+let searchToken = 0;
 
 const $ = (id) => document.getElementById(id);
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
 
 const escapeHtml = (s) => (s || "").replace(/[&<>"']/g, c => (
   {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
@@ -153,9 +150,53 @@ const escapeHtml = (s) => (s || "").replace(/[&<>"']/g, c => (
 const kmText = (m) => (typeof m === "number") ? (m/1000).toFixed(1) + " km" : "取得不可";
 const telHref = (t) => t ? `tel:${t.replace(/[^0-9+]/g,"")}` : "";
 
-/* ====== UI ====== */
 function setStatus(t, w=false){
   $("status").innerHTML = w ? `<span class="warn">${escapeHtml(t)}</span>` : escapeHtml(t);
+}
+
+function normalizeNumberInput(v, fallback){
+  const s = (v ?? "").toString().replace(/[^\d.]/g,"");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : fallback;
+}
+function normalizeIntInput(v, fallback){
+  const s = (v ?? "").toString().replace(/[^\d]/g,"");
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
+function loadHospitals(){
+  try {
+    const arr = JSON.parse(localStorage.getItem(DB_KEY) || "[]");
+    return (Array.isArray(arr) ? arr : []).map(h => ({
+      ...h,
+      tags: Array.isArray(h.tags) ? h.tags : [],
+      beds: (h.beds && typeof h.beds === "object") ? h.beds : {
+        acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0
+      },
+      note: h.note || "",
+      nearest: h.nearest || ""
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function saveHospitals(){
+  localStorage.setItem(DB_KEY, JSON.stringify(hospitals));
+}
+
+function exportHospitalsJSON(){
+  const json = JSON.stringify(hospitals, null, 2);
+  const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "hospitals_backup.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function renderTagBox(containerId, selected=[]){
@@ -193,59 +234,10 @@ function bedText(beds){
     .join(" / ");
 }
 
-/* ====== localStorage ====== */
-function loadHospitals(){
-  try {
-    const arr = JSON.parse(localStorage.getItem(DB_KEY) || "[]");
-    return (Array.isArray(arr) ? arr : []).map(h => ({
-      ...h,
-      tags: Array.isArray(h.tags) ? h.tags : [],
-      beds: (h.beds && typeof h.beds === "object") ? h.beds : {
-        acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0
-      },
-      note: h.note || "",
-      nearest: h.nearest || ""
-    }));
-  } catch {
-    return [];
-  }
-}
-function saveHospitals(){
-  localStorage.setItem(DB_KEY, JSON.stringify(hospitals));
-}
-
-/* ===== JSON出力（バックアップ用） ===== */
-function exportHospitalsJSON(){
-  const json = JSON.stringify(hospitals, null, 2);
-  const blob = new Blob([json], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "hospitals_backup.json";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  URL.revokeObjectURL(url);
-}
-
-/* ====== map helpers ====== */
 function clearMarkers(){
   markers.forEach(m=>m.setMap(null));
   markers = [];
   if (infoWindow) infoWindow.close();
-}
-
-function normalizeNumberInput(v, fallback){
-  const s = (v ?? "").toString().replace(/[^\d.]/g,"");
-  const n = Number(s);
-  return Number.isFinite(n) ? n : fallback;
-}
-function normalizeIntInput(v, fallback){
-  const s = (v ?? "").toString().replace(/[^\d]/g,"");
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.trunc(n) : fallback;
 }
 
 function geocode(addr){
@@ -257,7 +249,7 @@ function geocode(addr){
   });
 }
 
-/* 経路距離（成功時だけ meters を返す） */
+/* 経路距離（DRIVING） */
 function routeMeters(origin, h){
   return new Promise(res=>{
     directions.route({
@@ -265,16 +257,12 @@ function routeMeters(origin, h){
       destination: {lat: h.lat, lng: h.lng},
       travelMode: google.maps.TravelMode.DRIVING
     }, (r, s)=>{
-      if (s === "OK" && r.routes?.[0]?.legs?.[0]) {
-        res({ meters: r.routes[0].legs[0].distance.value, status: s });
-      } else {
-        res({ meters: null, status: s });
-      }
+      if (s === "OK" && r.routes?.[0]?.legs?.[0]) res({meters:r.routes[0].legs[0].distance.value, status:s});
+      else res({meters:null, status:s});
     });
   });
 }
 
-/* ===== 編集フォーム ===== */
 function fillForm(h){
   editId = h.id;
   $("hName").value = h.name || "";
@@ -351,7 +339,7 @@ async function saveHospital(){
   runSearch();
 }
 
-/* ===== 検索（経路距離のみ） ===== */
+/* ===== 検索：経路距離のみ＋OVER_QUERY_LIMIT回避 ===== */
 async function runSearch(){
   const myToken = ++searchToken;
   clearMarkers();
@@ -359,66 +347,65 @@ async function runSearch(){
   const originTxt = $("origin").value.trim();
   if(!originTxt) return setStatus("出発地を入力してください", true);
 
-  // 入力の耐性（スマホで空扱いになるの防ぐ）
   const radiusKm = Math.max(0.1, normalizeNumberInput($("radiusKm").value, 8));
   const limit = Math.max(1, normalizeIntInput($("limit").value, 20));
+  const radiusM = radiusKm * 1000;
 
   setStatus("出発地を検索中…");
   let origin;
   try { origin = await geocode(originTxt); }
   catch(e){ return setStatus(e.message, true); }
-
-  if (myToken !== searchToken) return; // 中断
+  if (myToken !== searchToken) return;
 
   map.setCenter(origin);
   map.setZoom(12);
   markers.push(new google.maps.Marker({map, position: origin}));
 
   const need = new Set(getTags("searchTags"));
-
   const filtered = hospitals.filter(h => {
     const t = Array.isArray(h.tags) ? h.tags : [];
     if (need.size === 0) return true;
     return [...need].every(x => t.includes(x));
   });
 
-  // ここが肝：258件全部にDirectionsしない。上から順にゆっくり叩いて必要数だけ集める。
-  // （直線距離は使わない。経路が取れたものだけを採用）
-  const radiusM = radiusKm * 1000;
-
-  setStatus(`経路距離を計算中…（半径 ${radiusKm}km / 上限 ${limit}件）`);
+  // ✅ ここが肝：全部に一気に経路計算しない
+  // 必要件数(limit)集まったら終了。OVERが出たら休む。
+  const MAX_TRY = Math.max(limit * 12, 180);
+  const targets = filtered.slice(0, MAX_TRY);
 
   let results = [];
   let fail = 0, over = 0;
 
-  // 叩く上限（増やしたければここだけ）
-  const MAX_TRY = Math.max(limit * 12, 180); // limit20なら240件まで
-  const targets = filtered.slice(0, MAX_TRY);
+  setStatus(`経路距離を計算中…（半径 ${radiusKm}km / 上限 ${limit}件）`);
 
   for (let i = 0; i < targets.length; i++){
-    if (myToken !== searchToken) return; // 中断
+    if (myToken !== searchToken) return;
+
+    if (i % 10 === 0){
+      setStatus(`経路距離を計算中… ${i}/${targets.length}（集計 ${results.length}/${limit}）`);
+    }
 
     const h = targets[i];
     if (typeof h.lat !== "number" || typeof h.lng !== "number") continue;
 
-    // 進捗
-    if (i % 10 === 0) setStatus(`経路距離を計算中… ${i}/${targets.length}（集計 ${results.length}/${limit}）`);
-
-    // 連打防止（スマホ/回線でも安定）
-    await sleep(140);
-
+    await sleep(150);
     const r = await routeMeters(origin, h);
 
-    if (r.status === "OVER_QUERY_LIMIT") over++;
-    if (r.meters === null) { fail++; continue; }
+    if (r.status === "OVER_QUERY_LIMIT"){
+      over++;
+      await sleep(900);
+      continue;
+    }
+
+    if (r.meters === null){
+      fail++;
+      continue;
+    }
 
     if (r.meters <= radiusM){
       results.push({...h, meters: r.meters});
-      if (results.length >= limit) break; // 必要数集まったら終了
+      if (results.length >= limit) break;
     }
-
-    // OVERが多い時は少し休む（回復）
-    if (over > 0 && over % 3 === 0) await sleep(600);
   }
 
   results.sort((a,b)=>a.meters-b.meters);
@@ -532,7 +519,6 @@ function initMap(){
 window.initMap = initMap;
 </script>
 
-<!-- ✅ places を入れてスマホで地名解決を安定、defer で初期化安定 -->
 <script async defer
 src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBM8lxW4kmGpwxF-9Yp9rj8LMakrbBtfQE&callback=initMap&language=ja&region=JP&libraries=places">
 </script>
