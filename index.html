@@ -3,523 +3,224 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>大阪市 病院検索（追加編集・削除・電話・タグ・病床・経路距離・最寄り駅）</title>
+<title>大阪市 病院検索</title>
 
 <style>
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif}
 header{padding:12px;border-bottom:1px solid #ddd;background:#fafafa}
-.row{display:flex;gap:12px;align-items:flex-end}
 label{font-size:12px;color:#555;display:block;margin-bottom:4px}
-input,button,textarea{padding:10px;font-size:15px}
-button{cursor:pointer}
+input,button,textarea{padding:10px;font-size:15px;border:1px solid #ccc;border-radius:8px}
+button{cursor:pointer;background:#fff}
+textarea{min-height:80px}
 
-#wrap{display:grid;grid-template-columns:1.2fr 1fr;height:calc(100vh - 290px)}
-#map{width:100%;height:100%}
-#side{overflow:auto;border-left:1px solid #ddd}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.grow{flex:1 1 300px}
+.right{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
 
-.panel{padding:12px;border-bottom:1px solid #eee}
-.panel h3{margin:0 0 8px;font-size:16px}
-.small{font-size:12px;color:#666;line-height:1.4}
+.small{font-size:12px;color:#666}
 .warn{color:#b00;font-weight:600}
 
-.tags{display:flex;gap:6px;flex-wrap:wrap}
-.tag{border:1px solid #ccc;border-radius:999px;padding:4px 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px}
+#wrap{
+  display:grid;
+  grid-template-columns:1fr;
+  height:auto;
+}
 
-.card{padding:12px;border-bottom:1px solid #eee;cursor:pointer}
+#map{width:100%;height:320px}
+
+.panel{padding:12px;border-bottom:1px solid #eee}
+.card{padding:10px;border-bottom:1px solid #eee}
 .card:hover{background:#f7f7f7}
-.title{font-weight:700}
-.meta{font-size:13px;color:#555;margin-top:4px}
-.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-.badge{font-size:12px;padding:3px 8px;border:1px solid #ccc;border-radius:999px}
-.actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-.actions button{padding:6px 10px;font-size:13px}
 
-.bed-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
-.bed-row{display:grid;grid-template-columns:90px 1fr 30px;gap:6px;align-items:center}
-.bed-row span{font-size:12px;color:#555}
+.badge{font-size:11px;padding:2px 6px;border:1px solid #ccc;border-radius:999px;margin-right:4px}
+
+@media(min-width:900px){
+  #wrap{
+    grid-template-columns:1.2fr 1fr;
+    height:calc(100vh - 180px);
+  }
+  #map{height:100%}
+}
 </style>
 </head>
 
 <body>
 
 <header>
-  <div class="row">
-    <div style="flex:0 1 520px">
-      <label>出発地</label>
-      <input id="origin" style="width:100%" placeholder="例：桜川駅 / 大阪市浪速区">
-    </div>
+<div class="row">
+<div class="grow">
+<label>出発地</label>
+<input id="origin" style="width:100%" value="桜川駅">
+</div>
 
-    <div style="display:flex;gap:12px;margin-left:auto">
-      <div>
-        <label>検索範囲（km）</label>
-        <input id="radiusKm" type="number" step="0.1" value="8" style="width:140px">
-      </div>
-      <div>
-        <label>表示件数</label>
-        <input id="limit" type="number" value="20" style="width:110px">
-      </div>
-      <button id="btnSearch">検索</button>
-    </div>
-  </div>
-
-  <div class="small" style="margin-top:8px">検索タグ（AND）</div>
-  <div id="searchTags" class="tags" style="margin-top:6px"></div>
-
-  <div class="small" id="status" style="margin-top:6px"></div>
+<div class="right">
+<div>
+<label>範囲(km)</label>
+<input id="radiusKm" type="number" value="8" style="width:90px">
+</div>
+<div>
+<label>件数</label>
+<input id="limit" type="number" value="20" style="width:70px">
+</div>
+<button id="btnSearch">検索</button>
+<button id="btnExport">JSON出力</button>
+</div>
+</div>
+<div class="small" id="status"></div>
 </header>
 
 <div id="wrap">
-  <div id="map"></div>
+<div id="map"></div>
 
-  <div id="side">
-    <div class="panel">
-      <h3>病院を追加 / 編集（この端末のローカル保存）</h3>
+<div>
+<div class="panel">
+<h3>検索結果</h3>
+<div id="list"></div>
+</div>
 
-      <div class="small">
-        ※ここで追加した病院は <b>この端末のブラウザだけ</b> に保存されます。<br>
-        みんなに共通で表示したい場合は、別途 hospitals.json を更新してください。
-      </div>
+<div class="panel">
+<h3>病院追加 / 編集</h3>
 
-      <div style="margin-top:10px"></div>
+<input id="hName" placeholder="病院名" style="width:100%;margin-bottom:6px">
+<input id="hAddr" placeholder="住所" style="width:100%;margin-bottom:6px">
+<input id="hTel" placeholder="電話番号" style="width:100%;margin-bottom:6px">
+<input id="hNearest" placeholder="最寄り駅" style="width:100%;margin-bottom:6px">
 
-      <input id="hName" style="width:100%" placeholder="病院名"><br><br>
-      <input id="hAddr" style="width:100%" placeholder="住所"><br><br>
-      <input id="hTel" style="width:100%" placeholder="電話番号"><br><br>
+<textarea id="hNote" placeholder="メモ" style="width:100%;margin-bottom:6px"></textarea>
 
-      <input id="hNearest" style="width:100%" placeholder="最寄り駅（例：扇町駅 / 桜川駅）"><br><br>
+<div class="row">
+<button id="btnSave">保存</button>
+<button id="btnReset">クリア</button>
+</div>
 
-      <div class="small">タグ（病院に付ける）</div>
-      <div id="formTags" class="tags" style="margin-top:6px"></div>
-
-      <div class="small" style="margin-top:10px">病床</div>
-      <div class="bed-grid">
-        <div class="bed-row">急性期<input id="bed_acute" type="number" min="0"><span>床</span></div>
-        <div class="bed-row">一般<input id="bed_general" type="number" min="0"><span>床</span></div>
-        <div class="bed-row">回復期<input id="bed_rehab" type="number" min="0"><span>床</span></div>
-        <div class="bed-row">療養<input id="bed_long" type="number" min="0"><span>床</span></div>
-        <div class="bed-row">地域包括<input id="bed_chiiki" type="number" min="0"><span>床</span></div>
-        <div class="bed-row">精神<input id="bed_psy" type="number" min="0"><span>床</span></div>
-        <div class="bed-row">緩和ケア<input id="bed_palliative" type="number" min="0"><span>床</span></div>
-        <div class="bed-row">障害<input id="bed_disability" type="number" min="0"><span>床</span></div>
-      </div>
-
-      <textarea id="hNote" style="width:100%;margin-top:8px" placeholder="メモ（検索結果とピンに表示）"></textarea>
-
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button id="btnSave">追加 / 更新（ローカル）</button>
-        <button id="btnReset">クリア</button>
-      </div>
-
-      <div class="small" id="editHint" style="margin-top:6px"></div>
-      <div class="small" id="dataHint" style="margin-top:6px"></div>
-    </div>
-
-    <div class="panel">
-      <h3>検索結果（経路距離が近い順）</h3>
-      <div id="list"></div>
-    </div>
-  </div>
+</div>
+</div>
 </div>
 
 <script>
-/**
- * ✅重要：データの読み方
- * - GitHub Pages / スマホ / 別PC でも必ず出るように「hospitals.json」を読みます（共通データ）
- * - さらに、この端末で追加した病院（localStorage）も「上乗せ」します
- */
+const DB_KEY="osaka_hospital_db_v3";
+let hospitals = JSON.parse(localStorage.getItem(DB_KEY)||"[]");
 
-const DB_KEY="osaka_hospital_db_tagsplit_v2_tel_bedgrid_local"; // ローカル追加分は別キーに分離
-const TAGS=["急性期","一般","回復期","療養","地域包括","緩和ケア","精神","障害","透析","ST在籍"];
+let map, geocoder, directions;
+let markers=[];
 
-let hospitals = [];     // ← 最終的に検索対象になる病院（json + local）
-let baseHospitals = []; // ← hospitals.json の中身
-let localHospitals = []; // ← この端末で追加した分
+const $=id=>document.getElementById(id);
 
-let map, geocoder, directions, infoWindow;
-let markers = [];
-let editId = null;
-
-const $ = (id) => document.getElementById(id);
-
-const escapeHtml = (s) => (s || "").replace(/[&<>"']/g, c => (
-  {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]
-));
-const kmText = (m) => (typeof m === "number") ? (m/1000).toFixed(1) + " km" : "取得不可";
-const telHref = (t) => t ? `tel:${t.replace(/[^0-9+]/g,"")}` : "";
-
-function setStatus(t, w=false){
-  $("status").innerHTML = w ? `<span class="warn">${escapeHtml(t)}</span>` : escapeHtml(t);
+function saveDB(){
+localStorage.setItem(DB_KEY,JSON.stringify(hospitals));
 }
 
-function normalizeHospital(h){
-  return {
-    id: h.id || ("h_" + Date.now()),
-    name: h.name || "",
-    address: h.address || "",
-    tel: h.tel || "",
-    nearest: h.nearest || "",
-    lat: typeof h.lat === "number" ? h.lat : Number(h.lat),
-    lng: typeof h.lng === "number" ? h.lng : Number(h.lng),
-    tags: Array.isArray(h.tags) ? h.tags : [],
-    beds: (h.beds && typeof h.beds === "object") ? h.beds : {
-      acute:0,general:0,rehab:0,long:0,chiiki:0,psy:0,palliative:0,disability:0
-    },
-    note: h.note || "",
-    __src: h.__src || "json" // json / local
-  };
-}
-
-async function loadHospitalsFromJson(){
-  // GitHub Pagesでは同じフォルダに hospitals.json を置く前提（/osaka-hospital-map/hospitals.json）
-  try {
-    const res = await fetch("hospitals.json", { cache: "no-store" });
-    if(!res.ok) throw new Error("hospitals.json を取得できませんでした");
-    const data = await res.json();
-    if(!Array.isArray(data)) throw new Error("hospitals.json の形式が配列ではありません");
-    return data.map(h => normalizeHospital({ ...h, __src:"json" }));
-  } catch(e){
-    console.error(e);
-    setStatus("共通データ（hospitals.json）の読み込みに失敗。URL/配置を確認して。", true);
-    return [];
-  }
-}
-
-function loadLocalHospitals(){
-  try {
-    const arr = JSON.parse(localStorage.getItem(DB_KEY) || "[]");
-    const list = (Array.isArray(arr) ? arr : []).map(h => normalizeHospital({ ...h, __src:"local" }));
-    return list;
-  } catch {
-    return [];
-  }
-}
-
-function saveLocalHospitals(){
-  localStorage.setItem(DB_KEY, JSON.stringify(localHospitals));
-}
-
-function rebuildHospitals(){
-  // id が同じなら local を優先して上書き（ローカルで修正したい時のため）
-  const m = new Map();
-  baseHospitals.forEach(h => m.set(h.id, h));
-  localHospitals.forEach(h => m.set(h.id, h));
-  hospitals = [...m.values()];
-  $("dataHint").innerHTML = `共通データ：${baseHospitals.length}件 / ローカル追加：${localHospitals.length}件 / 合計：${hospitals.length}件`;
-}
-
-function renderTagBox(containerId, selected=[]){
-  const box = $(containerId);
-  box.innerHTML = "";
-  const sel = new Set(selected || []);
-  TAGS.forEach(t=>{
-    const l = document.createElement("label");
-    l.className = "tag";
-    l.innerHTML = `<input type="checkbox" value="${escapeHtml(t)}" ${sel.has(t)?"checked":""}> ${escapeHtml(t)}`;
-    box.appendChild(l);
-  });
-}
-function getTags(containerId){
-  return [...document.querySelectorAll(`#${containerId} input:checked`)].map(x=>x.value);
-}
-
-function readBedsFromForm(){
-  return {
-    acute: +$("bed_acute").value || 0,
-    general: +$("bed_general").value || 0,
-    rehab: +$("bed_rehab").value || 0,
-    long: +$("bed_long").value || 0,
-    chiiki: +$("bed_chiiki").value || 0,
-    psy: +$("bed_psy").value || 0,
-    palliative: +$("bed_palliative").value || 0,
-    disability: +$("bed_disability").value || 0
-  };
-}
-function bedText(beds){
-  const m = {acute:"急性期",general:"一般",rehab:"回復期",long:"療養",chiiki:"地域包括",psy:"精神",palliative:"緩和",disability:"障害"};
-  return Object.entries(beds||{})
-    .filter(([k,v]) => Number(v) > 0)
-    .map(([k,v]) => `${m[k]}${v}床`)
-    .join(" / ");
+function setStatus(t,w=false){
+$("status").innerHTML=w?`<span class="warn">${t}</span>`:t;
 }
 
 function clearMarkers(){
-  markers.forEach(m=>m.setMap(null));
-  markers = [];
-  if (infoWindow) infoWindow.close();
+markers.forEach(m=>m.setMap(null));
+markers=[];
 }
 
 function geocode(addr){
-  return new Promise((ok, ng)=>{
-    geocoder.geocode({address: addr, region: "JP"}, (r, s)=>{
-      if (s === "OK" && r && r[0]) ok(r[0].geometry.location);
-      else ng(new Error("住所が見つかりませんでした（表記を少し変えて）"));
-    });
-  });
-}
-function routeMeters(origin, h){
-  return new Promise(res=>{
-    directions.route({
-      origin,
-      destination: {lat: h.lat, lng: h.lng},
-      travelMode: google.maps.TravelMode.DRIVING
-    }, (r, s)=>{
-      if (s === "OK" && r.routes?.[0]?.legs?.[0]) res(r.routes[0].legs[0].distance.value);
-      else res(null);
-    });
-  });
-}
-
-/* 編集フォームに反映 */
-function fillForm(h){
-  editId = h.id;
-  $("hName").value = h.name || "";
-  $("hAddr").value = h.address || "";
-  $("hTel").value  = h.tel || "";
-  $("hNearest").value = h.nearest || "";
-  $("hNote").value = h.note || "";
-
-  const b = h.beds || {};
-  $("bed_acute").value = b.acute || "";
-  $("bed_general").value = b.general || "";
-  $("bed_rehab").value = b.rehab || "";
-  $("bed_long").value = b.long || "";
-  $("bed_chiiki").value = b.chiiki || "";
-  $("bed_psy").value = b.psy || "";
-  $("bed_palliative").value = b.palliative || "";
-  $("bed_disability").value = b.disability || "";
-
-  renderTagBox("formTags", Array.isArray(h.tags) ? h.tags : []);
-  $("editHint").innerHTML = `編集モード：<b>${escapeHtml(h.name||"")}</b>（${h.__src==="local"?"ローカル":"共通"}）`;
-}
-
-function resetForm(){
-  editId = null;
-  $("hName").value = "";
-  $("hAddr").value = "";
-  $("hTel").value  = "";
-  $("hNearest").value = "";
-  $("hNote").value = "";
-  ["acute","general","rehab","long","chiiki","psy","palliative","disability"].forEach(k => {
-    $("bed_"+k).value = "";
-  });
-  renderTagBox("formTags", []);
-  $("editHint").textContent = "";
-}
-
-function deleteHospital(id){
-  // ローカル追加分のみ削除対象（共通データは消せない）
-  const before = localHospitals.length;
-  localHospitals = localHospitals.filter(x => x.id !== id);
-  if (localHospitals.length === before){
-    setStatus("共通データはこの画面から削除できません（ローカル追加分のみ）", true);
-    return;
-  }
-  saveLocalHospitals();
-  rebuildHospitals();
-  setStatus("ローカル追加分を削除しました");
-  if (editId === id) resetForm();
-  runSearch();
+return new Promise((ok,ng)=>{
+geocoder.geocode({address:addr,region:"JP"},(r,s)=>{
+if(s==="OK"&&r[0]) ok(r[0].geometry.location);
+else ng("住所エラー");
+});
+});
 }
 
 async function saveHospital(){
-  const name = $("hName").value.trim();
-  const addr = $("hAddr").value.trim();
-  if (!name || !addr) return setStatus("病院名と住所は必須", true);
+const name=$("hName").value.trim();
+const addr=$("hAddr").value.trim();
+if(!name||!addr) return setStatus("病院名と住所必須",true);
 
-  setStatus("住所を座標化中…");
-  let ll;
-  try { ll = await geocode(addr); }
-  catch(e){ return setStatus(e.message, true); }
+let ll;
+try{ll=await geocode(addr);}catch(e){return setStatus(e,true);}
 
-  const obj = normalizeHospital({
-    id: editId || ("h_" + Date.now()),
-    name,
-    address: addr,
-    tel: $("hTel").value.trim(),
-    nearest: $("hNearest").value.trim(),
-    lat: ll.lat(),
-    lng: ll.lng(),
-    tags: getTags("formTags"),
-    beds: readBedsFromForm(),
-    note: $("hNote").value.trim(),
-    __src: "local"
-  });
+const obj={
+id:Date.now(),
+name,
+address:addr,
+tel:$("hTel").value.trim(),
+nearest:$("hNearest").value.trim(),
+note:$("hNote").value.trim(),
+lat:ll.lat(),
+lng:ll.lng()
+};
 
-  // ローカルに保存（共通jsonは書き換えできない）
-  localHospitals = localHospitals.filter(x => x.id !== obj.id);
-  localHospitals.push(obj);
-  saveLocalHospitals();
-
-  rebuildHospitals();
-
-  setStatus("ローカルに保存しました");
-  resetForm();
-  runSearch();
+hospitals.push(obj);
+saveDB();
+setStatus("保存完了");
+$("hName").value="";
+$("hAddr").value="";
+$("hTel").value="";
+$("hNearest").value="";
+$("hNote").value="";
+runSearch();
 }
 
 async function runSearch(){
-  clearMarkers();
+clearMarkers();
+const originTxt=$("origin").value.trim();
+if(!originTxt) return;
 
-  if (!Array.isArray(hospitals) || hospitals.length === 0){
-    $("list").innerHTML = `<div class="small">病院データが0件です。hospitals.json が読めているか確認してください。</div>`;
-    return setStatus("病院データが0件", true);
-  }
+let origin;
+try{origin=await geocode(originTxt);}catch(e){return;}
 
-  const originTxt = $("origin").value.trim();
-  if(!originTxt) return setStatus("出発地を入力してください", true);
+map.setCenter(origin);
+map.setZoom(13);
 
-  setStatus("出発地を検索中…");
-  let origin;
-  try { origin = await geocode(originTxt); }
-  catch(e){ return setStatus(e.message, true); }
+let results=[...hospitals];
+results=results.slice(0,$("limit").value);
 
-  map.setCenter(origin);
-  map.setZoom(13);
-  markers.push(new google.maps.Marker({map, position: origin}));
+$("list").innerHTML="";
+results.forEach((h,i)=>{
+const mk=new google.maps.Marker({
+map,
+position:{lat:h.lat,lng:h.lng},
+label:String(i+1)
+});
+markers.push(mk);
 
-  const radiusKm = +$("radiusKm").value;
-  const limit = +$("limit").value || 20;
-  const need = new Set(getTags("searchTags"));
-
-  const filtered = hospitals.filter(h => {
-    const t = Array.isArray(h.tags) ? h.tags : [];
-    if (need.size === 0) return true;
-    return [...need].every(x => t.includes(x));
-  });
-
-  setStatus("経路距離を計算中…（件数が多いと少し待つ）");
-
-  let results = [];
-  for (const h of filtered){
-    if (typeof h.lat !== "number" || typeof h.lng !== "number" || Number.isNaN(h.lat) || Number.isNaN(h.lng)) continue;
-    const m = await routeMeters(origin, h);
-    if (m !== null && m <= radiusKm * 1000){
-      results.push({...h, meters: m});
-    }
-  }
-
-  results.sort((a,b)=>a.meters-b.meters);
-  results = results.slice(0, limit);
-
-  const listEl = $("list");
-  listEl.innerHTML = "";
-
-  if (results.length === 0){
-    listEl.innerHTML = `<div class="small">該当なし（範囲を広げる / タグを減らす）</div>`;
-    return setStatus(`表示：0件`);
-  }
-
-  results.forEach((h, i)=>{
-    const mk = new google.maps.Marker({
-      map,
-      position: {lat: h.lat, lng: h.lng},
-      label: String(i+1)
-    });
-    markers.push(mk);
-
-    mk.addListener("click", ()=>{
-      const bed = bedText(h.beds) || "未記載";
-      const nearestLine = h.nearest ? `最寄り駅：${escapeHtml(h.nearest)}` : "最寄り駅：未記載";
-      const srcLine = h.__src==="local" ? "データ：ローカル" : "データ：共通";
-      infoWindow.setContent(`
-        <div style="font-size:14px;line-height:1.35;min-width:240px;max-width:320px;">
-          <div style="font-weight:700;">${escapeHtml(h.name||"")}</div>
-          <div style="margin-top:4px;">${escapeHtml(h.address||"")}</div>
-          ${h.tel ? `<div style="margin-top:4px;font-size:12px;">☎ <a href="${telHref(h.tel)}">${escapeHtml(h.tel)}</a></div>` : ``}
-          <div style="margin-top:6px;font-size:12px;color:#555;">経路距離：${escapeHtml(kmText(h.meters))}</div>
-          <div style="margin-top:4px;font-size:12px;color:#555;">病床：${escapeHtml(bed)}</div>
-          <div style="margin-top:4px;font-size:12px;color:#555;">${nearestLine}</div>
-          <div style="margin-top:4px;font-size:12px;color:#555;">${srcLine}</div>
-          ${h.tags?.length ? `<div style="margin-top:6px;font-size:12px;">タグ：${h.tags.map(escapeHtml).join(" / ")}</div>` : ``}
-          ${h.note ? `<div style="margin-top:6px;font-size:12px;color:#555;">メモ：${escapeHtml(h.note)}</div>` : ``}
-        </div>
-      `);
-      infoWindow.open({map, anchor: mk});
-    });
-
-    const telLine = h.tel ? `<div class="small">☎ ${escapeHtml(h.tel)}</div>` : "";
-    const nearestLine = h.nearest ? `<div class="small">最寄り駅：${escapeHtml(h.nearest)}</div>` : `<div class="small">最寄り駅：未記載</div>`;
-    const noteLine = h.note ? `<div class="small">メモ：${escapeHtml(h.note)}</div>` : "";
-    const bedLine = `<div class="small">病床：${escapeHtml(bedText(h.beds) || "未記載")}</div>`;
-    const srcBadge = h.__src==="local" ? `<span class="badge">ローカル</span>` : `<span class="badge">共通</span>`;
-
-    const div = document.createElement("div");
-    div.className = "card";
-    div.innerHTML = `
-      <div class="title">${i+1}. ${escapeHtml(h.name||"")}</div>
-      <div class="meta">${escapeHtml(h.address||"")}</div>
-      ${telLine}
-      ${bedLine}
-      ${nearestLine}
-      ${noteLine}
-      <div class="badges">
-        <span class="badge">経路距離 ${escapeHtml(kmText(h.meters))}</span>
-        ${srcBadge}
-        ${(h.tags||[]).map(t=>`<span class="badge">${escapeHtml(t)}</span>`).join("")}
-      </div>
-      <div class="actions">
-        <button data-edit="1">編集</button>
-        <button data-del="1">削除</button>
-      </div>
-    `;
-
-    div.addEventListener("click", (e)=>{
-      const btn = e.target.closest("button");
-      if (btn?.dataset?.edit){
-        e.stopPropagation();
-        fillForm(h);
-        return;
-      }
-      if (btn?.dataset?.del){
-        e.stopPropagation();
-        if (confirm(`削除しますか？（ローカル追加分のみ削除できます）\n${h.name}`)) deleteHospital(h.id);
-        return;
-      }
-      map.panTo({lat: h.lat, lng: h.lng});
-      map.setZoom(15);
-      google.maps.event.trigger(mk, "click");
-    });
-
-    listEl.appendChild(div);
-  });
-
-  setStatus(`表示：${results.length}件（タグ ${need.size ? `AND ${[...need].join(" / ")}` : "指定なし"}）`);
+const div=document.createElement("div");
+div.className="card";
+div.innerHTML=`
+<b>${i+1}. ${h.name}</b><br>
+<span class="small">${h.address}</span><br>
+${h.tel?`☎ ${h.tel}<br>`:""}
+${h.nearest?`最寄:${h.nearest}<br>`:""}
+${h.note?`<span class="small">${h.note}</span>`:""}
+`;
+$("list").appendChild(div);
+});
 }
 
-async function initData(){
-  setStatus("病院データ読み込み中…");
-  baseHospitals = await loadHospitalsFromJson();
-  localHospitals = loadLocalHospitals();
-  rebuildHospitals();
-  setStatus(`準備OK：出発地を入れて検索して（病院データ ${hospitals.length} 件）`);
+function exportJSON(){
+const blob=new Blob([JSON.stringify(hospitals,null,2)],{type:"application/json"});
+const url=URL.createObjectURL(blob);
+const a=document.createElement("a");
+a.href=url;
+a.download="hospitals.json";
+a.click();
+URL.revokeObjectURL(url);
 }
 
 function initMap(){
-  geocoder = new google.maps.Geocoder();
-  directions = new google.maps.DirectionsService();
-  infoWindow = new google.maps.InfoWindow();
+geocoder=new google.maps.Geocoder();
+directions=new google.maps.DirectionsService();
+map=new google.maps.Map($("map"),{
+center:{lat:34.6937,lng:135.5023},
+zoom:12
+});
 
-  map = new google.maps.Map($("map"), {
-    center: {lat: 34.6937, lng: 135.5023},
-    zoom: 12,
-    mapTypeControl: false
-  });
+$("btnSearch").addEventListener("click",runSearch);
+$("btnSave").addEventListener("click",saveHospital);
+$("btnReset").addEventListener("click",()=>location.reload());
+$("btnExport").addEventListener("click",exportJSON);
 
-  renderTagBox("searchTags", []);
-  renderTagBox("formTags", []);
-
-  $("origin").value = "桜川駅";
-
-  $("btnSearch").addEventListener("click", runSearch);
-  $("btnSave").addEventListener("click", saveHospital);
-  $("btnReset").addEventListener("click", resetForm);
-  $("origin").addEventListener("keydown", (e)=>{ if(e.key==="Enter") runSearch(); });
-
-  // ✅ここで hospitals.json を読む
-  initData();
+runSearch();
 }
-
-window.initMap = initMap;
+window.initMap=initMap;
 </script>
 
 <script async
